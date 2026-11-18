@@ -152,3 +152,52 @@ scrape_configs:
         target_label: instance_id
       - source_labels: [__meta_ec2_availability_zone]
         target_label: az
+
+  # ================= Black-box: HTTPS + cert + redirect =================
+  - job_name: blackbox_http
+    metrics_path: /probe
+    static_configs:
+      - targets: [https://expense.daws90s.shop]
+        labels: { probe: alb, module: https_2xx }
+      - targets: [http://expense.daws90s.shop]
+        labels: { probe: alb_redirect, module: http_redirects_to_https }
+    relabel_configs:
+      - source_labels: [__address__]       # (1) website -> ?target=
+        target_label: __param_target
+      - source_labels: [module]            # (2) module label -> &module=
+        target_label: __param_module
+      - source_labels: [__param_target]    # (3) readable instance label
+        target_label: instance
+      - target_label: __address__          # (4) connect to the exporter (must be LAST)
+        replacement: localhost:9115
+
+  # ================= Black-box: DNS =================
+  - job_name: blackbox_dns
+    metrics_path: /probe
+    static_configs:
+      # Public resolver — what users see
+      - targets: [8.8.8.8]
+        labels: { resolver: public, module: dns_expense_a, record: expense.daws90s.shop }
+      # Amazon VPC resolver — what the app VMs see
+      - targets: [169.254.169.253]
+        labels: { resolver: vpc, module: dns_expense_a, record: expense.daws90s.shop }
+      - targets: [169.254.169.253]
+        labels: { resolver: vpc, module: dns_frontend_a, record: frontend.daws90s.shop }
+      - targets: [169.254.169.253]
+        labels: { resolver: vpc, module: dns_backend_a, record: backend.daws90s.shop }
+      - targets: [169.254.169.253]
+        labels: { resolver: vpc, module: dns_mysql_a, record: mysql.daws90s.shop }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115
+
+  # ================= Blackbox exporter's own health =================
+  - job_name: blackbox_exporter
+    static_configs:
+      - targets: [localhost:9115]
